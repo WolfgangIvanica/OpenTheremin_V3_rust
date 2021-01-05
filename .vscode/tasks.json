@@ -1,0 +1,14 @@
+{
+	"version": "2.0.0",
+	"tasks": [
+		{
+			"type": "shell",
+			"command": "./uno-runner.sh target/avr-atmega328p/debug/opentheremin.elf",
+			"group": {
+				"kind": "test",
+				"isDefault": true,
+			},
+			"label": "arduino: flash"
+		}
+	]
+}
