@@ -14,16 +14,20 @@ avr-device = "0.2.2"
 git = "https://github.com/Rahix/avr-hal"
 rev = "d17a441a667dd65e5a9be75b0e71d1beadf93e84"
 
+[dependencies.embedded-hal]
+version = "0.2.3"
+features = ["unproven"]
+
 # Configure the build for minimal size
 [profile.dev]
 panic = "abort"
 lto = true
 opt-level = "s"
-debug-assertions = false
+debug = true
+#debug-assertions = false
 
 [profile.release]
 panic = "abort"
 codegen-units = 1
-#debug = true
 lto = true
 opt-level = "s"

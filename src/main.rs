@@ -1,14 +1,15 @@
 #![no_std]
 #![no_main]
 #![feature(abi_avr_interrupt)]
+#![feature(llvm_asm)]
 
-use arduino_uno::adc;
-use arduino_uno::prelude::*;
-use core::cell;
+use arduino_uno::{adc, spi, spi::Settings, prelude::*};
+use embedded_hal;
 //use panic_halt as _;
 
-static G_TESTVAL: avr_device::interrupt::Mutex<cell::Cell<u32>> =
-    avr_device::interrupt::Mutex::new(cell::Cell::new(0));
+// local imports
+mod irq;
+mod sintable1;
 
 #[panic_handler]
 fn panic(info: &core::panic::PanicInfo) -> ! {
@@ -38,10 +39,8 @@ fn main() -> ! {
     let mut pins = arduino_uno::Pins::new(dp.PORTB, dp.PORTC, dp.PORTD);
 
     // LED defines
-    let mut led_arduino = pins.d13.into_output(&mut pins.ddr);
     let mut led_play = pins.a4.into_output(&mut pins.ddr);
     let mut led_standby = pins.a5.into_output(&mut pins.ddr);
-    led_arduino.set_low().void_unwrap();
     led_standby.set_low().void_unwrap();
     led_play.set_low().void_unwrap();
 
@@ -63,18 +62,42 @@ fn main() -> ! {
         57600.into_baudrate(),
     );
 
+    // SPI
+    let (_, _) = spi::Spi::new(
+        dp.SPI,
+        pins.d13.into_output(&mut pins.ddr),
+        pins.d11.into_output(&mut pins.ddr),
+        pins.d12.into_pull_up_input(&mut pins.ddr),
+        pins.d10.into_output(&mut pins.ddr),
+        Settings {
+            data_order: spi::DataOrder::MostSignificantFirst,
+            clock: spi::SerialClockRate::OscfOver2,
+            mode: embedded_hal::spi::Mode {
+                polarity: embedded_hal::spi::Polarity::IdleLow,
+                phase: embedded_hal::spi::Phase::CaptureOnFirstTransition,
+            },
+        }
+    );
+
+    // Latch Pin DAC
+    let mut _dac_latch = pins.d7.into_output(&mut pins.ddr);
+
+
     // INT1
     let ei = dp.EXINT;
     ei.eicra.write(|w| w.isc1().val_0x03());
-    ei.eimsk.write(|w| w.int().bits(0x02));
+    ei.eimsk.write(|w| w.int().bits(0x00));
+    unsafe {
+        avr_device::interrupt::enable(); // Enable interrupts
+    }
 
     // Hello
     ufmt::uwriteln!(&mut serial, "Hello OpenTheremin!\r").void_unwrap();
 
-    avr_device::interrupt::free(|cs| {
-        G_TESTVAL.borrow(cs).set(0);
-    });
-
+    // Start muted
+    irq::set_volume(25);
+    irq::set_tableinc(549); // MIDDLE_C = 261.6 * HZ_FAC = 2.09785
+    
     let mut btn_pressed: bool = false;
     loop {
         if function_button.is_low().void_unwrap() {
@@ -92,24 +115,12 @@ fn main() -> ! {
         } else {
             if btn_pressed {
                 btn_pressed = false;
-                let test = avr_device::interrupt::free(|cs| G_TESTVAL.borrow(cs).get());
-                ufmt::uwriteln!(&mut serial, "Testval: {}\r", test).void_unwrap();
-                // Enable interrupts
-                unsafe {
-                    avr_device::interrupt::enable();
-                }
+                let tv = irq::get_tablepos();
+                ei.eimsk.write(|w| w.int().bits(0x02));
+                ufmt::uwriteln!(&mut serial, "Tableval: {}\r", tv).void_unwrap();
             }
         }
         led_standby.toggle().void_unwrap();
         arduino_uno::delay_ms(200);
     }
-}
-
-#[avr_device::interrupt(atmega328p)]
-unsafe fn INT1() {
-    avr_device::interrupt::free(|cs| {
-        let counter_cell = G_TESTVAL.borrow(cs);
-        let counter = counter_cell.get();
-        counter_cell.set(counter + 1);
-    })
 }
