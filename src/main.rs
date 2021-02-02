@@ -2,10 +2,13 @@
 #![no_main]
 #![feature(abi_avr_interrupt)]
 #![feature(llvm_asm)]
+#![feature(unchecked_math)]
 
 use arduino_uno::{adc, spi, spi::Settings, prelude::*};
 use embedded_hal;
+use ufmt;
 //use panic_halt as _;
+//extern crate panic_halt;
 
 // local imports
 mod irq;
@@ -17,7 +20,6 @@ fn panic(info: &core::panic::PanicInfo) -> ! {
         unsafe { core::mem::MaybeUninit::uninit().assume_init() };
 
     ufmt::uwriteln!(&mut serial, "Firmware panic!\r").void_unwrap();
-
     if let Some(loc) = info.location() {
         ufmt::uwriteln!(
             &mut serial,
@@ -28,7 +30,6 @@ fn panic(info: &core::panic::PanicInfo) -> ! {
         )
         .void_unwrap();
     }
-
     loop {}
 }
 
@@ -51,8 +52,8 @@ fn main() -> ! {
     let mut adc = adc::Adc::new(dp.ADC, Default::default());
     let mut poti_pitch = pins.a0.into_analog_input(&mut adc);
     let mut poti_volume = pins.a1.into_analog_input(&mut adc);
-    let mut poti_waveform = pins.a2.into_analog_input(&mut adc);
-    let mut poti_timbre = pins.a3.into_analog_input(&mut adc);
+    //let mut poti_waveform = pins.a2.into_analog_input(&mut adc);
+    //let mut poti_timbre = pins.a3.into_analog_input(&mut adc);
 
     // Serial
     let mut serial = arduino_uno::Serial::new(
@@ -80,7 +81,8 @@ fn main() -> ! {
     );
 
     // Latch Pin DAC
-    let mut _dac_latch = pins.d7.into_output(&mut pins.ddr);
+    let mut dac_latch = pins.d7.into_output(&mut pins.ddr);
+    dac_latch.set_low().void_unwrap();
 
 
     // INT1
@@ -103,24 +105,18 @@ fn main() -> ! {
         if function_button.is_low().void_unwrap() {
             if !btn_pressed {
                 btn_pressed = true;
-                let value_pitch: u16 = nb::block!(adc.read(&mut poti_pitch)).void_unwrap();
-                let value_volume: u16 = nb::block!(adc.read(&mut poti_volume)).void_unwrap();
-                let value_waveform: u16 = nb::block!(adc.read(&mut poti_waveform)).void_unwrap();
-                let value_timbre: u16 = nb::block!(adc.read(&mut poti_timbre)).void_unwrap();
-                ufmt::uwriteln!(&mut serial, "Pitch   : {}\r", value_pitch).void_unwrap();
-                ufmt::uwriteln!(&mut serial, "Volume  : {}\r", value_volume).void_unwrap();
-                ufmt::uwriteln!(&mut serial, "Waveform: {}\r", value_waveform).void_unwrap();
-                ufmt::uwriteln!(&mut serial, "Timbre  : {}\r", value_timbre).void_unwrap();
             }
         } else {
             if btn_pressed {
                 btn_pressed = false;
-                let tv = irq::get_tablepos();
                 ei.eimsk.write(|w| w.int().bits(0x02));
-                ufmt::uwriteln!(&mut serial, "Tableval: {}\r", tv).void_unwrap();
             }
         }
+        let value_pitch: u16 = nb::block!(adc.read(&mut poti_pitch)).void_unwrap();
+        let value_volume: u16 = nb::block!(adc.read(&mut poti_volume)).void_unwrap();
+        irq::set_tableinc(value_pitch);
+        irq::set_volume(value_volume);
         led_standby.toggle().void_unwrap();
-        arduino_uno::delay_ms(200);
+        arduino_uno::delay_ms(20);
     }
 }
