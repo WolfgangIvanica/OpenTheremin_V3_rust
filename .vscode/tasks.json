@@ -6,9 +6,19 @@
 			"command": "./uno-runner.sh target/avr-atmega328p/debug/opentheremin.elf",
 			"group": {
 				"kind": "test",
-				"isDefault": true,
+				"isDefault": true
 			},
 			"label": "arduino: flash"
+		},
+		{
+			"type": "shell",
+			"command": "cargo build",
+			"group": {
+				"kind": "build",
+				"isDefault": true
+			},
+			"label": "arduino: build",
+			"problemMatcher": []
 		}
 	]
 }

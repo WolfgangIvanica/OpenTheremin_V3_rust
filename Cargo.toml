@@ -8,14 +8,14 @@ edition = "2018"
 panic-halt = "0.2.0"
 nb = "0.1.2"
 ufmt = "0.1.0"
-avr-device = "0.2.2"
+avr-device = "0.3.0"
 
 [dependencies.arduino-uno]
 git = "https://github.com/Rahix/avr-hal"
-rev = "d17a441a667dd65e5a9be75b0e71d1beadf93e84"
+rev = "885e8ec6d6d2fe34f26a1e2697a99f41092f0985"
 
 [dependencies.embedded-hal]
-version = "0.2.3"
+version = "0.2.5"
 features = ["unproven"]
 
 # Configure the build for minimal size

@@ -14,11 +14,14 @@ use ufmt;
 mod irq;
 mod sintable1;
 
+static mut G_INT1_ACTIVE: bool = false;
+
 #[panic_handler]
 fn panic(info: &core::panic::PanicInfo) -> ! {
     let mut serial: arduino_uno::Serial<arduino_uno::hal::port::mode::Floating> =
         unsafe { core::mem::MaybeUninit::uninit().assume_init() };
 
+    disable_exti1(); // We have to disable ExtI1 while using the UART
     ufmt::uwriteln!(&mut serial, "Firmware panic!\r").void_unwrap();
     if let Some(loc) = info.location() {
         ufmt::uwriteln!(
@@ -85,10 +88,11 @@ fn main() -> ! {
     dac_latch.set_low().void_unwrap();
 
 
-    // INT1
+    // External Interrupts
     let ei = dp.EXINT;
     ei.eicra.write(|w| w.isc1().val_0x03());
-    ei.eimsk.write(|w| w.int().bits(0x00));
+    ei.eimsk.write(|w| w.int0().clear_bit());
+    ei.eimsk.write(|w| w.int1().clear_bit());
     unsafe {
         avr_device::interrupt::enable(); // Enable interrupts
     }
@@ -101,15 +105,21 @@ fn main() -> ! {
     irq::set_tableinc(549); // MIDDLE_C = 261.6 * HZ_FAC = 2.09785
     
     let mut btn_pressed: bool = false;
+    ei.eimsk.write(|w| w.int1().set_bit());
+    unsafe { G_INT1_ACTIVE = true; }
     loop {
         if function_button.is_low().void_unwrap() {
             if !btn_pressed {
                 btn_pressed = true;
+                disable_exti1();
+                ufmt::uwriteln!(&mut serial, "PRESSED\r").void_unwrap();
+                enable_exti1();
             }
         } else {
             if btn_pressed {
                 btn_pressed = false;
-                ei.eimsk.write(|w| w.int().bits(0x02));
+                ei.eimsk.write(|w| w.int1().set_bit());
+                unsafe { G_INT1_ACTIVE = true; }
             }
         }
         let value_pitch: u16 = nb::block!(adc.read(&mut poti_pitch)).void_unwrap();
@@ -117,6 +127,37 @@ fn main() -> ! {
         irq::set_tableinc(value_pitch);
         irq::set_volume(value_volume);
         led_standby.toggle().void_unwrap();
+        delay_ms_corrected(20);
+    }
+}
+
+fn delay_ms_corrected(ms: u16) {
+    //let iexti: arduino_uno::pac::EXINT = unsafe { core::mem::MaybeUninit::uninit().assume_init() };
+
+    /*let myval = iexti.eimsk.read().int1().bit_is_set();
+    if myval {
         arduino_uno::delay_ms(20);
+        //ms = 21; // my Oszi says 3.25 but it should be fine
+    } else {
+        arduino_uno::delay_ms(21);
+    }*/
+    arduino_uno::delay_ms(ms);
+}
+
+fn disable_exti1() {
+    let iexti: arduino_uno::pac::EXINT = unsafe { core::mem::MaybeUninit::uninit().assume_init() };
+    let int1active = unsafe {G_INT1_ACTIVE};
+    if int1active {
+        iexti.eimsk.write(|w| w.int1().clear_bit());
+        arduino_uno::delay_ms(5); // let irq finish
+    } 
+}
+
+fn enable_exti1() {
+    let iexti: arduino_uno::pac::EXINT = unsafe { core::mem::MaybeUninit::uninit().assume_init() };
+    let int1active = unsafe {G_INT1_ACTIVE};
+    if int1active {
+        arduino_uno::delay_ms(5); // safety wait?
+        iexti.eimsk.write(|w| w.int1().set_bit());
     }
 }
